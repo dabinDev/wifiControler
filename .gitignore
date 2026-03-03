@@ -43,3 +43,97 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Gradle specific
+.gradle/
+gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Android local properties
+/android/local.properties
+/android/key.properties
+/android/keystore.properties
+
+# APK and AAB files
+*.apk
+*.aab
+/app-release.apk
+/app-debug.apk
+/app-release.aab
+/app-debug.aab
+
+# Build logs
+flutter_build.log
+*.log
+
+# Temporary and backup files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*~
+
+# Environment files
+.env
+.env.*
+.env.local
+.env.*.local
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# iOS specific
+/ios/Flutter/Flutter.framework
+/ios/Flutter/Flutter.podspec
+/ios/Flutter/Generated.xcconfig
+/ios/Flutter/Flutter.xcconfig
+/ios/Flutter/ephemeral/
+/ios/Pods/
+/ios/Podfile.lock
+/ios/.symlinks/
+
+# Linux specific
+/linux/flutter/ephemeral/
+
+# Windows specific
+/windows/flutter/ephemeral/
+
+# Web related
+lib/generated_plugin_registrant.dart
+
+# Test coverage
+coverage/
+*.lcov
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Project specific backup files
+*_backup.*
+*_full.*
+*_simple.*
+pubspec_minimal.yaml
+lib/main_*.dart
+lib/services/hardware_service_*.dart
+lib/pages/*_simple.dart
+BUILD_SUCCESS_SUMMARY.md
+OPTIMIZATION_SUMMARY.md
+
+# Git merge conflict files
+*.orig
+*.rej
+*~
+
+# Local configuration
+config/local.dart
+config/dev.dart
+config/prod.dart

@@ -77,9 +77,8 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
         _onlineDevices.add(message.from);
         _deviceLastSeen[message.from] = DateTime.now();
         
-        if (message.type == MessageTypes.regAck) {
-          _ackDevices.add(message.from);
-        }
+        // 收到任何消息都认为是设备在线的标志
+        _ackDevices.add(message.from);
       }
       
       setState(() {});

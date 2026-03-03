@@ -19,7 +19,7 @@ class _ControlledPageState extends State<ControlledPage> {
   final String _deviceId = 'dev-${DateTime.now().millisecondsSinceEpoch}';
   late final enhanced_udp.UdpService _udpService;
   late final HardwareService _hardwareService;
-  static const int _port = 8888;
+  static const int _port = 8889;
 
   final List<String> _logs = <String>[];
   StreamSubscription<enhanced_udp.UdpDatagramEvent>? _eventSub;

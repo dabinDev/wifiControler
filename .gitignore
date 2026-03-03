@@ -137,3 +137,24 @@ OPTIMIZATION_SUMMARY.md
 config/local.dart
 config/dev.dart
 config/prod.dart
+
+# CXX build files (Android NDK)
+.cxx/
+!/.cxx/README.md
+
+# Android build reports
+android/build/reports/
+
+# iOS specific files that should be ignored
+ios/Flutter/Generated.xcconfig
+ios/Flutter/ephemeral/
+ios/Flutter/flutter_export_environment.sh
+ios/Runner/GeneratedPluginRegistrant.*
+ios/Pods/
+ios/Podfile.lock
+ios/.symlinks/
+ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
+ios/Runner.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+ios/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist

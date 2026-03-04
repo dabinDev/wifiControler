@@ -97,6 +97,13 @@ class _ControlledPageState extends State<ControlledPage> {
       _hardwareService = HardwareService();
       await _hardwareService.initRecorder();
       
+      // 设置状态回调
+      _hardwareService.setStatusCallback((String status) {
+        _addLog('硬件状态: $status');
+        // 更新心跳状态以包含录制信息
+        _sendHeartbeat();
+      });
+      
       _udpService = enhanced_udp.UdpService(listenPort: _port);
       await _udpService.startListening();
       
@@ -400,6 +407,8 @@ class _ControlledPageState extends State<ControlledPage> {
   Future<void> _sendHeartbeat() async {
     try {
       final int now = DateTime.now().millisecondsSinceEpoch;
+      final Map<String, dynamic> hardwareStatus = _hardwareService.getCurrentStatus();
+      
       final ControlMessage heartbeat = ControlMessage(
         type: MessageTypes.heartbeat,
         messageId: 'hb-$now',
@@ -411,6 +420,8 @@ class _ControlledPageState extends State<ControlledPage> {
           'storage': _storageFree,
           'cpuTemp': _cpuTemp,
           'wifiSignal': _wifiSignalStrength,
+          // 添加录制状态
+          'recordingStatus': hardwareStatus,
         },
       );
 
@@ -479,8 +490,11 @@ class _ControlledPageState extends State<ControlledPage> {
           extraPayload: <String, dynamic>{
             'status': 'recording',
             'type': 'video',
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
           },
         );
+        // 立即发送状态更新
+        _sendHeartbeat();
       } else {
         _addLog('录像开始失败');
         await _sendAck(message, extraPayload: <String, dynamic>{'error': 'start_failed'});
@@ -504,8 +518,11 @@ class _ControlledPageState extends State<ControlledPage> {
             'filePath': videoPath,
             'fileSize': fileSize,
             'type': 'video',
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
           },
         );
+        // 发送状态更新
+        _sendHeartbeat();
       } else {
         _addLog('录像停止失败');
         await _sendAck(message, extraPayload: <String, dynamic>{'error': 'stop_failed'});
@@ -528,8 +545,11 @@ class _ControlledPageState extends State<ControlledPage> {
           extraPayload: <String, dynamic>{
             'status': 'recording',
             'type': 'audio',
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
           },
         );
+        // 立即发送状态更新
+        _sendHeartbeat();
       } else {
         _addLog('录音开始失败');
         await _sendAck(message, extraPayload: <String, dynamic>{'error': 'start_failed'});
@@ -542,20 +562,22 @@ class _ControlledPageState extends State<ControlledPage> {
 
   Future<void> _executeAudioStop(ControlMessage message) async {
     _addLog('停止录音...');
-    
     try {
       final String? audioPath = await _hardwareService.stopAudioRecording();
       if (audioPath != null) {
         final int fileSize = await File(audioPath).length();
-        _addLog('录音停止: $audioPath (${fileSize}B)');
+        _addLog('录音完成: $audioPath (${fileSize}B)');
         await _sendAck(
           message,
           extraPayload: <String, dynamic>{
             'filePath': audioPath,
             'fileSize': fileSize,
             'type': 'audio',
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
           },
         );
+        // 发送状态更新
+        _sendHeartbeat();
       } else {
         _addLog('录音停止失败');
         await _sendAck(message, extraPayload: <String, dynamic>{'error': 'stop_failed'});
@@ -567,6 +589,11 @@ class _ControlledPageState extends State<ControlledPage> {
   }
 
   void _addLog(String message) {
+    // 过滤掉一些频繁但不重要的日志
+    if (message.contains('心跳发送失败') && message.contains('SocketException')) {
+      return; // 忽略网络心跳失败
+    }
+    
     setState(() {
       _logs.add('${DateTime.now().toIso8601String().substring(11, 19)}: $message');
       if (_logs.length > 100) {
@@ -648,9 +675,13 @@ class _ControlledPageState extends State<ControlledPage> {
                     _buildStatusCard('充电', _isCharging ? '是' : '否', Icons.power, _isCharging ? Colors.green : Colors.grey),
                     const SizedBox(width: 8),
                     if (_controllerDeviceId.isNotEmpty)
-                  _buildStatusCard('控制端', _controllerDeviceId.substring(0, 8), Icons.settings_remote, Colors.purple),
+                    _buildStatusCard('控制端', _controllerDeviceId.substring(0, 8), Icons.settings_remote, Colors.purple),
                   ],
                 ),
+                
+                // 添加录制状态显示
+                const SizedBox(height: 8),
+                _buildRecordingStatusCard(),
               ],
             ),
           ),
@@ -771,5 +802,83 @@ class _ControlledPageState extends State<ControlledPage> {
         ),
       ),
     );
+  }
+
+  Widget _buildRecordingStatusCard() {
+    final Map<String, dynamic> status = _hardwareService.getCurrentStatus();
+    final bool isVideoRecording = status['isVideoRecording'] == true;
+    final bool isAudioRecording = status['isAudioRecording'] == true;
+    
+    if (!isVideoRecording && !isAudioRecording) {
+      return const SizedBox.shrink();
+    }
+    
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.red.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.fiber_manual_record, color: Colors.red, size: 16),
+              const SizedBox(width: 8),
+              Text('录制中', style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.red.shade700,
+                fontSize: 16,
+              )),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (isVideoRecording) ...[
+            Row(
+              children: [
+                Icon(Icons.videocam, color: Colors.red.shade600, size: 16),
+                const SizedBox(width: 4),
+                Text('视频录制', style: TextStyle(color: Colors.red.shade600)),
+                if (status['videoStartTime'] != null) ...[
+                  const Spacer(),
+                  Text(
+                    _formatDuration(DateTime.fromMillisecondsSinceEpoch(status['videoStartTime'])),
+                    style: TextStyle(color: Colors.red.shade600, fontSize: 12),
+                  ),
+                ],
+              ],
+            ),
+          ],
+          if (isAudioRecording) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.mic, color: Colors.red.shade600, size: 16),
+                const SizedBox(width: 4),
+                Text('音频录制', style: TextStyle(color: Colors.red.shade600)),
+                if (status['audioStartTime'] != null) ...[
+                  const Spacer(),
+                  Text(
+                    _formatDuration(DateTime.fromMillisecondsSinceEpoch(status['audioStartTime'])),
+                    style: TextStyle(color: Colors.red.shade600, fontSize: 12),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _formatDuration(DateTime startTime) {
+    final Duration duration = DateTime.now().difference(startTime);
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+    final String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+    return '$twoDigitMinutes:$twoDigitSeconds';
   }
 }

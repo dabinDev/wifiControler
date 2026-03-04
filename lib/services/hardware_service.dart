@@ -14,11 +14,54 @@ class HardwareService {
   static final HardwareService _instance = HardwareService._();
   factory HardwareService() => _instance;
 
+  // 状态回调
+  Function(String)? _onStatusChanged;
+  
+  // 录制状态
+  bool _isVideoRecording = false;
+  bool _isAudioRecording = false;
+  String? _currentVideoPath;
+  String? _currentAudioPath;
+  DateTime? _videoStartTime;
+  DateTime? _audioStartTime;
+
   CameraController? _cameraController;
   bool _cameraInitializing = false;
   bool _videoRecording = false;
   final AudioRecorder _audioRecorder = AudioRecorder();
   bool _recorderInitialized = false;
+
+  /// 设置状态变化回调
+  void setStatusCallback(Function(String) callback) {
+    _onStatusChanged = callback;
+  }
+
+  /// 获取当前状态
+  Map<String, dynamic> getCurrentStatus() {
+    return {
+      'isVideoRecording': _isVideoRecording,
+      'isAudioRecording': _isAudioRecording,
+      'videoPath': _currentVideoPath,
+      'audioPath': _currentAudioPath,
+      'videoStartTime': _videoStartTime?.millisecondsSinceEpoch,
+      'audioStartTime': _audioStartTime?.millisecondsSinceEpoch,
+    };
+  }
+
+  /// 停止所有录制操作
+  Future<void> stopAllRecordings() async {
+    if (_isVideoRecording) {
+      await stopVideoRecording();
+    }
+    if (_isAudioRecording) {
+      await stopAudioRecording();
+    }
+  }
+
+  void _updateStatus(String status) {
+    _onStatusChanged?.call(status);
+    _log(status);
+  }
 
   /// 初始化录音器
   Future<void> initRecorder() async {
@@ -89,14 +132,25 @@ class HardwareService {
   /// 开始录像
   Future<String?> startVideoRecording() async {
     try {
+      // 自动停止其他操作
+      if (_isAudioRecording) {
+        _updateStatus('自动停止录音以开始录像');
+        await stopAudioRecording();
+      }
+      
       await _ensureCameraInitialized();
-      if (_videoRecording) return null;
+      if (_videoRecording || _isVideoRecording) return null;
+      
       await _cameraController!.startVideoRecording();
       _videoRecording = true;
-      _log('录像开始');
-      return 'recording';
+      _isVideoRecording = true;
+      _videoStartTime = DateTime.now();
+      _currentVideoPath = 'recording';
+      
+      _updateStatus('录像开始');
+      return _currentVideoPath;
     } catch (e) {
-      _log('录像开始失败: $e');
+      _updateStatus('录像开始失败: $e');
     }
     return null;
   }
@@ -104,19 +158,25 @@ class HardwareService {
   /// 停止录像
   Future<String?> stopVideoRecording() async {
     try {
-      if (_cameraController == null || !_videoRecording) return null;
+      if (_cameraController == null || !_videoRecording || !_isVideoRecording) return null;
+      
       final XFile file = await _cameraController!.stopVideoRecording();
       _videoRecording = false;
+      _isVideoRecording = false;
+      
       final String outputDir = await _ensureOutputDir('recordings');
       final String destPath = path.join(
         outputDir,
         'video_${DateTime.now().millisecondsSinceEpoch}.mp4',
       );
       await File(file.path).copy(destPath);
-      _log('录像完成: $destPath');
+      
+      _currentVideoPath = destPath;
+      _videoStartTime = null;
+      _updateStatus('录像完成: $destPath');
       return destPath;
     } catch (e) {
-      _log('录像停止失败: $e');
+      _updateStatus('录像停止失败: $e');
     }
     return null;
   }
@@ -124,15 +184,25 @@ class HardwareService {
   /// 开始录音
   Future<String?> startAudioRecording() async {
     try {
+      // 自动停止其他操作
+      if (_isVideoRecording) {
+        _updateStatus('自动停止录像以开始录音');
+        await stopVideoRecording();
+      }
+      
       await initRecorder();
       if (!await _audioRecorder.hasPermission()) {
         throw StateError('Microphone permission denied');
       }
+      
+      if (_isAudioRecording) return null;
+      
       final String outputDir = await _ensureOutputDir('recordings');
       final String filePath = path.join(
         outputDir,
         'audio_${DateTime.now().millisecondsSinceEpoch}.m4a',
       );
+      
       await _audioRecorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
@@ -141,10 +211,14 @@ class HardwareService {
         ),
         path: filePath,
       );
-      _log('录音开始: $filePath');
+      
+      _isAudioRecording = true;
+      _audioStartTime = DateTime.now();
+      _currentAudioPath = filePath;
+      _updateStatus('录音开始: $filePath');
       return filePath;
     } catch (e) {
-      _log('录音开始失败: $e');
+      _updateStatus('录音开始失败: $e');
     }
     return null;
   }
@@ -152,12 +226,17 @@ class HardwareService {
   /// 停止录音
   Future<String?> stopAudioRecording() async {
     try {
+      if (!_isAudioRecording) return null;
+      
       final String? path = await _audioRecorder.stop();
       if (path == null) return null;
-      _log('录音停止: $path');
+      
+      _isAudioRecording = false;
+      _audioStartTime = null;
+      _updateStatus('录音停止: $path');
       return path;
     } catch (e) {
-      _log('录音停止失败: $e');
+      _updateStatus('录音停止失败: $e');
     }
     return null;
   }
@@ -208,11 +287,13 @@ class HardwareService {
 
   /// 释放资源
   Future<void> dispose() async {
+    await stopAllRecordings();
     await _cameraController?.dispose();
     _cameraController = null;
     await _audioRecorder.dispose();
     _recorderInitialized = false;
-    _log('硬件服务已释放');
+    _onStatusChanged = null;
+    _updateStatus('硬件服务已释放');
   }
 
   void _log(String message) {

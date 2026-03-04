@@ -32,6 +32,9 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
   final Map<String, Map<String, dynamic>> _deviceStatus =
       <String, Map<String, dynamic>>{};
   final Map<String, String> _deviceIps = <String, String>{};
+  
+  // 录制状态跟踪
+  final Map<String, Map<String, dynamic>> _deviceRecordingStatus = <String, Map<String, dynamic>>{};
 
   StreamSubscription<enhanced_udp.UdpDatagramEvent>? _eventSub;
   Timer? _heartbeatTimer;
@@ -79,7 +82,10 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
     try {
       final ControlMessage message = event.message;
       
-      _addLog('收到消息: ${message.type} 来自 ${message.from}');
+      // 只记录重要消息，减少日志噪音
+      if (message.type != MessageTypes.heartbeat) {
+        _addLog('收到消息: ${message.type} 来自 ${message.from}');
+      }
       
       if (message.from != _deviceId) {
         _onlineDevices.add(message.from);
@@ -88,6 +94,23 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
         _deviceIps[message.from] = event.senderAddress;
         if (message.type == MessageTypes.heartbeat && message.payload != null) {
           _deviceStatus[message.from] = message.payload!;
+          
+          // 提取录制状态
+          if (message.payload!.containsKey('recordingStatus')) {
+            final Map<String, dynamic> recordingStatus = message.payload!['recordingStatus'];
+            _deviceRecordingStatus[message.from] = recordingStatus;
+          }
+        }
+        
+        // 处理录制状态更新
+        if (message.type == MessageTypes.cmdRecordStart || 
+            message.type == MessageTypes.cmdRecordStop ||
+            message.type == MessageTypes.cmdAudioStart || 
+            message.type == MessageTypes.cmdAudioStop) {
+          if (message.payload != null) {
+            _deviceRecordingStatus[message.from] = message.payload!;
+            _addLog('设备 ${message.from} 录制状态更新');
+          }
         }
         
         // 收到任何消息都认为是设备在线的标志
@@ -96,7 +119,10 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
       
       setState(() {});
     } catch (e) {
-      _addLog('消息处理错误: $e');
+      // 只记录关键错误
+      if (e.toString().contains('FormatException') == false) {
+        _addLog('消息处理错误: $e');
+      }
     }
   }
 
@@ -556,6 +582,37 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
                                       _formatWifi(status['wifiSignal']),
                                     ),
                                   ],
+                                  // 添加录制状态显示
+                                  if (_deviceRecordingStatus.containsKey(deviceId)) ...[
+                                    const SizedBox(height: 4),
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.shade50,
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(color: Colors.blue.shade200),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Icon(Icons.fiber_manual_record, 
+                                                   color: Colors.red, size: 12),
+                                              SizedBox(width: 4),
+                                              Text('录制状态', 
+                                                   style: TextStyle(
+                                                     fontWeight: FontWeight.bold,
+                                                     color: Colors.blue.shade700,
+                                                   )),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 4),
+                                          _buildRecordingStatusRows(deviceId),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                   if (lastMessage?.payload != null)
                                     _buildDeviceDetailRow(
                                       'Payload',
@@ -597,6 +654,67 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
         ],
       ),
     );
+  }
+
+  Widget _buildRecordingStatusRows(String deviceId) {
+    final Map<String, dynamic>? status = _deviceRecordingStatus[deviceId];
+    if (status == null) return const SizedBox.shrink();
+
+    final List<Widget> rows = [];
+    
+    // 显示状态
+    if (status.containsKey('status')) {
+      final String statusText = status['status'] == 'recording' ? '录制中' : '已停止';
+      final Color statusColor = status['status'] == 'recording' ? Colors.red : Colors.green;
+      
+      rows.add(_buildDeviceDetailRow(
+        '状态',
+        statusText,
+      ));
+      
+      rows.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              SizedBox(width: 72),
+              Icon(Icons.fiber_manual_record, color: statusColor, size: 8),
+              SizedBox(width: 4),
+              Text(
+                statusText,
+                style: TextStyle(
+                  color: statusColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    
+    // 显示类型
+    if (status.containsKey('type')) {
+      final String type = status['type'] == 'video' ? '视频' : '音频';
+      rows.add(_buildDeviceDetailRow('类型', type));
+    }
+    
+    // 显示文件路径
+    if (status.containsKey('filePath')) {
+      rows.add(_buildDeviceDetailRow('文件', status['filePath'].toString().split('/').last));
+    }
+    
+    // 显示文件大小
+    if (status.containsKey('fileSize')) {
+      final int size = status['fileSize'];
+      final String sizeText = size > 1024 * 1024 
+          ? '${(size / (1024 * 1024)).toStringAsFixed(1)} MB'
+          : '${(size / 1024).toStringAsFixed(1)} KB';
+      rows.add(_buildDeviceDetailRow('大小', sizeText));
+    }
+    
+    return Column(children: rows);
   }
 
   Widget _buildLogTab() {

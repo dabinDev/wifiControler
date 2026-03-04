@@ -14,6 +14,9 @@ import 'package:permission_handler/permission_handler.dart';
 import '../models/control_message.dart';
 import '../protocol/message_types.dart';
 import '../services/udp_service_enhanced.dart' as enhanced_udp;
+import 'image_preview_page.dart';
+import 'video_preview_page.dart';
+import 'audio_preview_page.dart';
 
 class SyncPage extends StatefulWidget {
   const SyncPage({
@@ -142,173 +145,13 @@ class _SyncPageState extends State<SyncPage> {
     }
     final String? thumbPath = await VideoThumbnail.thumbnailFile(
       video: filePath,
+      thumbnailPath: (await getTemporaryDirectory()).path,
       imageFormat: ImageFormat.JPEG,
-      maxHeight: 240,
+      maxHeight: 200,
       quality: 75,
     );
     _videoThumbs[filePath] = thumbPath;
     return thumbPath;
-  }
-
-  Future<void> _showVideoPlayer(String filePath) async {
-    _videoController?.dispose();
-    final VideoPlayerController controller =
-        VideoPlayerController.file(File(filePath));
-    await controller.initialize();
-    await controller.play();
-    _videoController = controller;
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          contentPadding: const EdgeInsets.all(8),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AspectRatio(
-                aspectRatio: controller.value.aspectRatio,
-                child: VideoPlayer(controller),
-              ),
-              const SizedBox(height: 8),
-              ValueListenableBuilder<VideoPlayerValue>(
-                valueListenable: controller,
-                builder: (context, value, _) {
-                  final Duration duration = value.duration;
-                  final Duration position = value.position;
-                  final double max = duration.inMilliseconds.toDouble();
-                  final double current = position.inMilliseconds
-                      .clamp(0, duration.inMilliseconds)
-                      .toDouble();
-                  return Column(
-                    children: [
-                      Slider(
-                        value: max == 0 ? 0 : current,
-                        max: max == 0 ? 1 : max,
-                        onChanged: (newValue) {
-                          controller.seekTo(
-                            Duration(milliseconds: newValue.toInt()),
-                          );
-                        },
-                      ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          IconButton(
-                            icon: Icon(
-                              value.isPlaying
-                                  ? Icons.pause_circle
-                                  : Icons.play_circle,
-                            ),
-                            onPressed: () {
-                              if (value.isPlaying) {
-                                controller.pause();
-                              } else {
-                                controller.play();
-                              }
-                            },
-                          ),
-                          Text(
-                            '${_formatDuration(position)} / ${_formatDuration(duration)}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                controller.pause();
-                Navigator.of(context).pop();
-              },
-              child: const Text('关闭'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _showAudioPlayer(String filePath) async {
-    _audioPlayer?.dispose();
-    final AudioPlayer player = AudioPlayer();
-    await player.setFilePath(filePath);
-    await player.play();
-    _audioPlayer = player;
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (context) {
-        return StreamBuilder<Duration>(
-          stream: player.positionStream,
-          builder: (context, snapshot) {
-            final Duration position = snapshot.data ?? Duration.zero;
-            final Duration duration = player.duration ?? Duration.zero;
-            final double max = duration.inMilliseconds.toDouble();
-            final double current = position.inMilliseconds
-                .clamp(0, duration.inMilliseconds)
-                .toDouble();
-            return AlertDialog(
-              title: Text(path.basename(filePath)),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Slider(
-                    value: max == 0 ? 0 : current,
-                    max: max == 0 ? 1 : max,
-                    onChanged: (newValue) {
-                      player.seek(
-                        Duration(milliseconds: newValue.toInt()),
-                      );
-                    },
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      IconButton(
-                        icon: Icon(
-                          player.playing
-                              ? Icons.pause_circle
-                              : Icons.play_circle,
-                        ),
-                        onPressed: () async {
-                          if (player.playing) {
-                            await player.pause();
-                          } else {
-                            await player.play();
-                          }
-                          if (mounted) {
-                            setState(() {});
-                          }
-                        },
-                      ),
-                      Text(
-                        '${_formatDuration(position)} / ${_formatDuration(duration)}',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () async {
-                    await player.stop();
-                    Navigator.of(context).pop();
-                  },
-                  child: const Text('停止'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
   }
 
   String _formatDuration(Duration duration) {
@@ -319,28 +162,40 @@ class _SyncPageState extends State<SyncPage> {
 
   Future<void> _showImagePreview(String filePath) async {
     if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (context) {
-        return Dialog(
-          insetPadding: const EdgeInsets.all(12),
-          child: Stack(
-            children: [
-              InteractiveViewer(
-                child: Image.file(File(filePath), fit: BoxFit.contain),
-              ),
-              Positioned(
-                top: 8,
-                right: 8,
-                child: IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+    final String fileName = path.basename(filePath);
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => ImagePreviewPage(
+          filePath: filePath,
+          title: fileName,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showVideoPlayer(String filePath) async {
+    if (!mounted) return;
+    final String fileName = path.basename(filePath);
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => VideoPreviewPage(
+          filePath: filePath,
+          title: fileName,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showAudioPlayer(String filePath) async {
+    if (!mounted) return;
+    final String fileName = path.basename(filePath);
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => AudioPreviewPage(
+          filePath: filePath,
+          title: fileName,
+        ),
+      ),
     );
   }
 

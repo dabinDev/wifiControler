@@ -3,12 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-import '../constants/app_constants.dart';
 import '../models/control_message.dart';
 import '../protocol/message_types.dart';
 import '../services/hardware_service.dart';
 import '../services/udp_service_enhanced.dart' as enhanced_udp;
+import '../constants/app_constants.dart';
+import 'media_files_page.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
@@ -619,6 +621,19 @@ class _ControlledPageState extends State<ControlledPage> {
         title: const Text('被控制端'),
         backgroundColor: Colors.red.shade700,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.folder),
+            tooltip: '媒体文件',
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (context) => const MediaFilesPage(),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [

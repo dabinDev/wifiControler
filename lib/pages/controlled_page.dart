@@ -262,7 +262,16 @@ class _ControlledPageState extends State<ControlledPage> {
   Future<void> _executeRecordStop(ControlMessage message) async {
     _addLog('停止录像...');
     _sendAck(message);
-    _addLog('录像已停止');
+    try {
+      final String? videoPath = await _hardwareService.stopVideoRecording();
+      if (videoPath != null) {
+        _addLog('录像完成: $videoPath');
+      } else {
+        _addLog('录像停止失败');
+      }
+    } catch (e) {
+      _addLog('录像停止错误: $e');
+    }
   }
 
   Future<void> _executeAudioStart(ControlMessage message) async {

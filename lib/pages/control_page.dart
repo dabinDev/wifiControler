@@ -16,7 +16,8 @@ class ControlPage extends StatefulWidget {
 
 class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin {
   final String _deviceId = 'ctrl-${DateTime.now().millisecondsSinceEpoch}';
-  static const int _port = 8889;
+  static const int _port = 8889; // 控制端监听端口
+  static const int _targetPort = 8888; // 目标(被控制端)端口
   late final enhanced_udp.UdpService _udpService;
 
   final TextEditingController _commandController = TextEditingController();
@@ -95,7 +96,10 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       };
       
-      await _udpService.sendBroadcast(jsonPayload: jsonEncode(heartbeat));
+      await _udpService.sendBroadcast(
+        jsonPayload: jsonEncode(heartbeat),
+        port: _targetPort,
+      );
     } catch (e) {
       _addLog('心跳发送失败: $e');
     }
@@ -148,7 +152,10 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
     }
     
     try {
-      await _udpService.sendBroadcast(jsonPayload: jsonEncode(command));
+      await _udpService.sendBroadcast(
+        jsonPayload: jsonEncode(command),
+        port: _targetPort,
+      );
       _addLog('发送命令: $typeOrCommand');
       setState(() {
         _ackDevices.clear();

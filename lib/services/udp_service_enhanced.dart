@@ -115,6 +115,7 @@ class UdpService {
   void _handleIncomingDatagram(Datagram datagram, RawDatagramSocket socket) {
     try {
       final String payload = utf8.decode(datagram.data, allowMalformed: true);
+      _log('Received raw datagram: $payload from ${datagram.address.address}:${datagram.port}');
       
       // 解密数据（如果启用加密）
       final String decryptedPayload = enableEncryption 
@@ -122,12 +123,19 @@ class UdpService {
           : payload;
       
       final ControlMessage? message = ControlMessage.tryParse(decryptedPayload);
-      if (message == null || message.type.isEmpty || message.messageId.isEmpty) {
+      if (message == null) {
+        _log('Failed to parse ControlMessage from payload');
+        return;
+      }
+      
+      if (message.type.isEmpty || message.messageId.isEmpty) {
+        _log('Message missing required fields. Type: ${message.type}, ID: ${message.messageId}');
         return;
       }
 
       // 消息去重
       if (_processedMessageIds.contains(message.messageId)) {
+        _log('Duplicate message ignored: ${message.messageId}');
         return;
       }
       _processedMessageIds.add(message.messageId);
@@ -159,11 +167,69 @@ class UdpService {
   }) async {
     port ??= listenPort;
     
-    if (retry) {
-      await _sendWithRetry(jsonPayload, InternetAddress('255.255.255.255'), port);
-    } else {
-      _sendSingle(jsonPayload, InternetAddress('255.255.255.255'), port);
+    // Android在某些情况下不允许发送到 255.255.255.255
+    // 先尝试获取本地IP并推断广播地址，如果失败则回退到多个常见广播地址
+    final List<InternetAddress> broadcastAddresses = await _getBroadcastAddresses();
+    
+    bool sentToAtLeastOne = false;
+    for (final address in broadcastAddresses) {
+      try {
+        if (retry) {
+          await _sendWithRetry(jsonPayload, address, port);
+        } else {
+          _sendSingle(jsonPayload, address, port);
+        }
+        sentToAtLeastOne = true;
+      } catch (e) {
+        _log('Failed to broadcast to ${address.address}: $e');
+      }
     }
+    
+    // 如果所有特定广播地址都失败了，最后尝试一次 255.255.255.255 作为后备
+    if (!sentToAtLeastOne) {
+      try {
+         if (retry) {
+          await _sendWithRetry(jsonPayload, InternetAddress('255.255.255.255'), port);
+        } else {
+          _sendSingle(jsonPayload, InternetAddress('255.255.255.255'), port);
+        }
+      } catch (e) {
+         _log('Failed to broadcast to 255.255.255.255: $e');
+      }
+    }
+  }
+
+  Future<List<InternetAddress>> _getBroadcastAddresses() async {
+    final List<InternetAddress> addresses = <InternetAddress>[];
+    try {
+      final List<NetworkInterface> interfaces = await NetworkInterface.list();
+      for (final interface in interfaces) {
+        for (final addr in interface.addresses) {
+          if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
+            // 简单的将最后一段替换为 255 来推断广播地址，更严谨的做法需要子网掩码
+            final List<String> parts = addr.address.split('.');
+            if (parts.length == 4) {
+              parts[3] = '255';
+              addresses.add(InternetAddress(parts.join('.')));
+            }
+          }
+        }
+      }
+    } catch (e) {
+      _log('Error getting network interfaces: $e');
+    }
+    
+    // 如果获取不到，返回几个常见的广播地址
+    if (addresses.isEmpty) {
+      addresses.addAll([
+        InternetAddress('192.168.0.255'),
+        InternetAddress('192.168.1.255'),
+        InternetAddress('192.168.3.255'),
+        InternetAddress('192.168.43.255'),
+        InternetAddress('10.0.0.255'),
+      ]);
+    }
+    return addresses;
   }
 
   Future<void> sendUnicast({

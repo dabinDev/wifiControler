@@ -19,7 +19,8 @@ class _ControlledPageState extends State<ControlledPage> {
   final String _deviceId = 'dev-${DateTime.now().millisecondsSinceEpoch}';
   late final enhanced_udp.UdpService _udpService;
   late final HardwareService _hardwareService;
-  static const int _port = 8889;
+  static const int _port = 8888; // 被控制端监听端口
+  static const int _targetPort = 8889; // 目标(控制端)端口
 
   final List<String> _logs = <String>[];
   StreamSubscription<enhanced_udp.UdpDatagramEvent>? _eventSub;
@@ -124,7 +125,10 @@ class _ControlledPageState extends State<ControlledPage> {
         'originalMessageId': originalMessage.messageId,
       };
       
-      await _udpService.sendBroadcast(jsonPayload: jsonEncode(ack));
+      await _udpService.sendBroadcast(
+        jsonPayload: jsonEncode(ack),
+        port: _targetPort,
+      );
       _addLog('发送ACK: ${originalMessage.type}');
     } catch (e) {
       _addLog('ACK发送失败: $e');
@@ -146,7 +150,10 @@ class _ControlledPageState extends State<ControlledPage> {
         },
       };
       
-      await _udpService.sendBroadcast(jsonPayload: jsonEncode(heartbeat));
+      await _udpService.sendBroadcast(
+        jsonPayload: jsonEncode(heartbeat),
+        port: _targetPort,
+      );
     } catch (e) {
       _addLog('心跳发送失败: $e');
     }

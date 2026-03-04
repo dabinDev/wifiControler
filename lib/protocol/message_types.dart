@@ -33,6 +33,14 @@ class MessageTypes {
   static const String eventUploadFailed = 'EVENT_UPLOAD_FAILED';
   static const String cmdUploadCancel = 'CMD_UPLOAD_CANCEL';
 
+  // Sync (UDP P2P)
+  static const String syncListReq = 'SYNC_LIST_REQ';
+  static const String syncListResp = 'SYNC_LIST_RESP';
+  static const String syncFileReq = 'SYNC_FILE_REQ';
+  static const String syncFileChunk = 'SYNC_FILE_CHUNK';
+  static const String syncFileEnd = 'SYNC_FILE_END';
+  static const String syncFileMissing = 'SYNC_FILE_MISSING';
+
   // Hardware Remote
   static const String cmdCamSwitch = 'CMD_CAM_SWITCH';
   static const String cmdZoomSet = 'CMD_ZOOM_SET';

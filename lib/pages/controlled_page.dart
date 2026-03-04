@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -8,6 +9,8 @@ import '../models/control_message.dart';
 import '../protocol/message_types.dart';
 import '../services/hardware_service.dart';
 import '../services/udp_service_enhanced.dart' as enhanced_udp;
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 
 class ControlledPage extends StatefulWidget {
   const ControlledPage({super.key});
@@ -32,6 +35,7 @@ class _ControlledPageState extends State<ControlledPage> {
   bool _hasNetworkError = false;
   String _controllerDeviceId = '';
   DateTime? _lastControllerContact;
+  final Map<String, String> _mediaIndex = <String, String>{};
 
   // Device status
   double _batteryLevel = 85.0;
@@ -128,13 +132,13 @@ class _ControlledPageState extends State<ControlledPage> {
         _showNotificationSnackbar(message);
       }
       
-      _processMessage(message);
+      _processMessage(message, event.senderAddress, event.senderPort);
     } catch (e) {
       _addLog('消息处理错误: $e');
     }
   }
 
-  void _processMessage(ControlMessage message) {
+  void _processMessage(ControlMessage message, String senderIp, int senderPort) {
     switch (message.type) {
       case MessageTypes.hello:
         _sendAck(message);
@@ -154,23 +158,233 @@ class _ControlledPageState extends State<ControlledPage> {
       case MessageTypes.cmdAudioStop:
         _executeAudioStop(message);
         break;
+      case MessageTypes.syncListReq:
+        _handleSyncListRequest(message, senderIp, senderPort);
+        break;
+      case MessageTypes.syncFileReq:
+        _handleSyncFileRequest(message, senderIp, senderPort);
+        break;
+      case MessageTypes.syncFileMissing:
+        _handleSyncFileMissing(message, senderIp, senderPort);
+        break;
       default:
         _addLog('未知命令类型: ${message.type}');
     }
   }
 
-  Future<void> _sendAck(ControlMessage originalMessage) async {
+  Future<void> _handleSyncListRequest(
+    ControlMessage message,
+    String senderIp,
+    int senderPort,
+  ) async {
+    try {
+      final List<Map<String, dynamic>> files = await _collectMediaFiles();
+      final ControlMessage response = ControlMessage(
+        type: MessageTypes.syncListResp,
+        messageId: 'sync-list-${DateTime.now().millisecondsSinceEpoch}',
+        from: _deviceId,
+        to: message.from,
+        timestampMs: DateTime.now().millisecondsSinceEpoch,
+        payload: <String, dynamic>{'files': files},
+      );
+      await _udpService.sendUnicast(
+        jsonPayload: response.toJson(),
+        ip: senderIp,
+        port: senderPort,
+      );
+      _addLog('已发送同步列表: ${files.length}');
+    } catch (e) {
+      _addLog('同步列表失败: $e');
+    }
+  }
+
+  Future<void> _handleSyncFileRequest(
+    ControlMessage message,
+    String senderIp,
+    int senderPort,
+  ) async {
+    try {
+      final String? fileId = message.payload?['fileId']?.toString();
+      if (fileId == null || !_mediaIndex.containsKey(fileId)) {
+        _addLog('同步文件请求无效: $fileId');
+        return;
+      }
+      await _sendFileChunks(
+        fileId: fileId,
+        filePath: _mediaIndex[fileId]!,
+        senderIp: senderIp,
+        senderPort: senderPort,
+        targetDevice: message.from,
+      );
+    } catch (e) {
+      _addLog('同步文件失败: $e');
+    }
+  }
+
+  Future<void> _handleSyncFileMissing(
+    ControlMessage message,
+    String senderIp,
+    int senderPort,
+  ) async {
+    try {
+      final String? fileId = message.payload?['fileId']?.toString();
+      final List<dynamic>? missing = message.payload?['missing'] as List<dynamic>?;
+      if (fileId == null || missing == null || !_mediaIndex.containsKey(fileId)) {
+        _addLog('缺块请求无效: $fileId');
+        return;
+      }
+      final List<int> indexes = missing
+          .map((dynamic value) => int.tryParse(value.toString()))
+          .whereType<int>()
+          .toList();
+      await _sendFileChunks(
+        fileId: fileId,
+        filePath: _mediaIndex[fileId]!,
+        senderIp: senderIp,
+        senderPort: senderPort,
+        targetDevice: message.from,
+        chunkIndexes: indexes,
+        sendEnd: false,
+      );
+    } catch (e) {
+      _addLog('缺块重传失败: $e');
+    }
+  }
+
+  Future<void> _sendFileChunks({
+    required String fileId,
+    required String filePath,
+    required String senderIp,
+    required int senderPort,
+    required String targetDevice,
+    List<int>? chunkIndexes,
+    bool sendEnd = true,
+  }) async {
+    final File file = File(filePath);
+    if (!await file.exists()) {
+      _addLog('文件不存在: $filePath');
+      return;
+    }
+
+    final List<int> bytes = await file.readAsBytes();
+    const int chunkSize = 8 * 1024;
+    final int totalChunks = (bytes.length / chunkSize).ceil();
+    final List<int> indexes = chunkIndexes ??
+        List<int>.generate(totalChunks, (int index) => index);
+
+    for (final int index in indexes) {
+      if (index < 0 || index >= totalChunks) continue;
+      final int start = index * chunkSize;
+      final int end = (start + chunkSize).clamp(0, bytes.length);
+      final List<int> chunk = bytes.sublist(start, end);
+      final ControlMessage chunkMessage = ControlMessage(
+        type: MessageTypes.syncFileChunk,
+        messageId: 'sync-chunk-$fileId-$index',
+        from: _deviceId,
+        to: targetDevice,
+        timestampMs: DateTime.now().millisecondsSinceEpoch,
+        payload: <String, dynamic>{
+          'fileId': fileId,
+          'index': index,
+          'total': totalChunks,
+          'data': base64Encode(chunk),
+        },
+      );
+      await _udpService.sendUnicast(
+        jsonPayload: chunkMessage.toJson(),
+        ip: senderIp,
+        port: senderPort,
+        retry: false,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+
+    if (!sendEnd) return;
+    final ControlMessage endMessage = ControlMessage(
+      type: MessageTypes.syncFileEnd,
+      messageId: 'sync-end-$fileId',
+      from: _deviceId,
+      to: targetDevice,
+      timestampMs: DateTime.now().millisecondsSinceEpoch,
+      payload: <String, dynamic>{
+        'fileId': fileId,
+        'fileName': path.basename(filePath),
+        'fileSize': bytes.length,
+      },
+    );
+    await _udpService.sendUnicast(
+      jsonPayload: endMessage.toJson(),
+      ip: senderIp,
+      port: senderPort,
+      retry: false,
+    );
+    _addLog('同步文件完成: $filePath');
+  }
+
+  Future<List<Map<String, dynamic>>> _collectMediaFiles() async {
+    final Directory appDir = await getApplicationDocumentsDirectory();
+    final Directory capturesDir = Directory(path.join(appDir.path, 'captures'));
+    final Directory recordingsDir = Directory(path.join(appDir.path, 'recordings'));
+
+    final List<FileSystemEntity> entities = <FileSystemEntity>[];
+    if (await capturesDir.exists()) {
+      entities.addAll(await capturesDir.list().toList());
+    }
+    if (await recordingsDir.exists()) {
+      entities.addAll(await recordingsDir.list().toList());
+    }
+
+    _mediaIndex.clear();
+    final List<Map<String, dynamic>> files = <Map<String, dynamic>>[];
+    for (final FileSystemEntity entity in entities) {
+      if (entity is! File) continue;
+      final String filePath = entity.path;
+      final String fileId = 'media-${filePath.hashCode}-${DateTime.now().millisecondsSinceEpoch}';
+      final int fileSize = await entity.length();
+      final String extension = path.extension(filePath).toLowerCase();
+      final String type = _resolveMediaType(extension);
+      _mediaIndex[fileId] = filePath;
+      files.add(<String, dynamic>{
+        'fileId': fileId,
+        'fileName': path.basename(filePath),
+        'filePath': filePath,
+        'fileSize': fileSize,
+        'type': type,
+      });
+    }
+    return files;
+  }
+
+  String _resolveMediaType(String extension) {
+    if (<String>['.jpg', '.jpeg', '.png'].contains(extension)) {
+      return 'photo';
+    }
+    if (<String>['.mp4', '.mov', '.mkv'].contains(extension)) {
+      return 'video';
+    }
+    if (<String>['.m4a', '.aac', '.wav'].contains(extension)) {
+      return 'audio';
+    }
+    return 'file';
+  }
+
+  Future<void> _sendAck(
+    ControlMessage originalMessage, {
+    Map<String, dynamic>? extraPayload,
+  }) async {
     try {
       final int now = DateTime.now().millisecondsSinceEpoch;
+      final Map<String, dynamic> payload = <String, dynamic>{
+        'originalMessageId': originalMessage.messageId,
+        if (extraPayload != null) ...extraPayload,
+      };
       final ControlMessage ack = ControlMessage(
         type: MessageTypes.ack,
         messageId: 'ack-$now',
         from: _deviceId,
         to: originalMessage.from,
         timestampMs: now,
-        payload: <String, dynamic>{
-          'originalMessageId': originalMessage.messageId,
-        },
+        payload: payload,
       );
 
       await _udpService.sendBroadcast(
@@ -229,80 +443,126 @@ class _ControlledPageState extends State<ControlledPage> {
 
   Future<void> _executeTakePhoto(ControlMessage message) async {
     _addLog('执行拍照命令...');
-    _sendAck(message);
     
     try {
       final String? photoPath = await _hardwareService.takePhoto();
       if (photoPath != null) {
-        _addLog('拍照成功: $photoPath');
+        final int fileSize = await File(photoPath).length();
+        _addLog('拍照成功: $photoPath (${fileSize}B)');
+        await _sendAck(
+          message,
+          extraPayload: <String, dynamic>{
+            'filePath': photoPath,
+            'fileSize': fileSize,
+            'type': 'photo',
+          },
+        );
       } else {
         _addLog('拍照失败');
+        await _sendAck(message, extraPayload: <String, dynamic>{'error': 'capture_failed'});
       }
     } catch (e) {
       _addLog('拍照错误: $e');
+      await _sendAck(message, extraPayload: <String, dynamic>{'error': e.toString()});
     }
   }
 
   Future<void> _executeRecordStart(ControlMessage message) async {
     _addLog('开始录像...');
-    _sendAck(message);
     
     try {
       final String? videoPath = await _hardwareService.startVideoRecording();
       if (videoPath != null) {
-        _addLog('录像开始: $videoPath');
+        _addLog('录像开始');
+        await _sendAck(
+          message,
+          extraPayload: <String, dynamic>{
+            'status': 'recording',
+            'type': 'video',
+          },
+        );
       } else {
         _addLog('录像开始失败');
+        await _sendAck(message, extraPayload: <String, dynamic>{'error': 'start_failed'});
       }
     } catch (e) {
       _addLog('录像错误: $e');
+      await _sendAck(message, extraPayload: <String, dynamic>{'error': e.toString()});
     }
   }
 
   Future<void> _executeRecordStop(ControlMessage message) async {
     _addLog('停止录像...');
-    _sendAck(message);
     try {
       final String? videoPath = await _hardwareService.stopVideoRecording();
       if (videoPath != null) {
-        _addLog('录像完成: $videoPath');
+        final int fileSize = await File(videoPath).length();
+        _addLog('录像完成: $videoPath (${fileSize}B)');
+        await _sendAck(
+          message,
+          extraPayload: <String, dynamic>{
+            'filePath': videoPath,
+            'fileSize': fileSize,
+            'type': 'video',
+          },
+        );
       } else {
         _addLog('录像停止失败');
+        await _sendAck(message, extraPayload: <String, dynamic>{'error': 'stop_failed'});
       }
     } catch (e) {
       _addLog('录像停止错误: $e');
+      await _sendAck(message, extraPayload: <String, dynamic>{'error': e.toString()});
     }
   }
 
   Future<void> _executeAudioStart(ControlMessage message) async {
     _addLog('开始录音...');
-    _sendAck(message);
     
     try {
       final String? audioPath = await _hardwareService.startAudioRecording();
       if (audioPath != null) {
         _addLog('录音开始: $audioPath');
+        await _sendAck(
+          message,
+          extraPayload: <String, dynamic>{
+            'status': 'recording',
+            'type': 'audio',
+          },
+        );
       } else {
         _addLog('录音开始失败');
+        await _sendAck(message, extraPayload: <String, dynamic>{'error': 'start_failed'});
       }
     } catch (e) {
       _addLog('录音错误: $e');
+      await _sendAck(message, extraPayload: <String, dynamic>{'error': e.toString()});
     }
   }
 
   Future<void> _executeAudioStop(ControlMessage message) async {
     _addLog('停止录音...');
-    _sendAck(message);
     
     try {
       final String? audioPath = await _hardwareService.stopAudioRecording();
       if (audioPath != null) {
-        _addLog('录音停止: $audioPath');
+        final int fileSize = await File(audioPath).length();
+        _addLog('录音停止: $audioPath (${fileSize}B)');
+        await _sendAck(
+          message,
+          extraPayload: <String, dynamic>{
+            'filePath': audioPath,
+            'fileSize': fileSize,
+            'type': 'audio',
+          },
+        );
       } else {
         _addLog('录音停止失败');
+        await _sendAck(message, extraPayload: <String, dynamic>{'error': 'stop_failed'});
       }
     } catch (e) {
       _addLog('录音停止错误: $e');
+      await _sendAck(message, extraPayload: <String, dynamic>{'error': e.toString()});
     }
   }
 

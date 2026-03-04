@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/control_message.dart';
 import '../protocol/message_types.dart';
 import '../services/udp_service_enhanced.dart' as enhanced_udp;
+import 'sync_page.dart';
 
 class ControlPage extends StatefulWidget {
   const ControlPage({super.key});
@@ -30,6 +31,7 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
   final Set<String> _expandedDevices = <String>{};
   final Map<String, Map<String, dynamic>> _deviceStatus =
       <String, Map<String, dynamic>>{};
+  final Map<String, String> _deviceIps = <String, String>{};
 
   StreamSubscription<enhanced_udp.UdpDatagramEvent>? _eventSub;
   Timer? _heartbeatTimer;
@@ -56,6 +58,7 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
       
       _heartbeatTimer = Timer.periodic(const Duration(seconds: 10), (_) => _sendHeartbeat());
       _deviceCleanupTimer = Timer.periodic(const Duration(seconds: 15), (_) => _cleanupOfflineDevices());
+      _sendDiscover();
       
       setState(() {
         _networkReady = true;
@@ -82,6 +85,7 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
         _onlineDevices.add(message.from);
         _deviceLastSeen[message.from] = DateTime.now();
         _deviceLastMessage[message.from] = message;
+        _deviceIps[message.from] = event.senderAddress;
         if (message.type == MessageTypes.heartbeat && message.payload != null) {
           _deviceStatus[message.from] = message.payload!;
         }
@@ -115,6 +119,25 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
     }
   }
 
+  Future<void> _sendDiscover() async {
+    try {
+      final int now = DateTime.now().millisecondsSinceEpoch;
+      final ControlMessage discover = ControlMessage(
+        type: MessageTypes.discover,
+        messageId: 'discover-$now',
+        from: _deviceId,
+        timestampMs: now,
+      );
+      await _udpService.sendBroadcast(
+        jsonPayload: discover.toJson(),
+        port: _targetPort,
+      );
+      _addLog('发送设备发现请求');
+    } catch (e) {
+      _addLog('设备发现请求失败: $e');
+    }
+  }
+
   void _cleanupOfflineDevices() {
     final DateTime now = DateTime.now();
     final List<String> offlineDevices = <String>[];
@@ -131,6 +154,7 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
           _onlineDevices.remove(deviceId);
           _deviceLastSeen.remove(deviceId);
           _ackDevices.remove(deviceId);
+          _deviceIps.remove(deviceId);
         }
       });
       _addLog('清理离线设备: ${offlineDevices.join(', ')}');
@@ -222,6 +246,26 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
         title: const Text('控制端'),
         backgroundColor: Colors.blue.shade700,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.sync),
+            tooltip: '同步',
+            onPressed: () {
+              _sendDiscover();
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => SyncPage(
+                    udpService: _udpService,
+                    getDevices: () => _onlineDevices.toList(),
+                    getDeviceIps: () => Map<String, String>.from(_deviceIps),
+                    controllerId: _deviceId,
+                    targetPort: _targetPort,
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../constants/app_constants.dart';
 import '../models/control_message.dart';
 import '../protocol/message_types.dart';
 import '../services/hardware_service.dart';
@@ -45,6 +46,48 @@ class _ControlledPageState extends State<ControlledPage> {
     _initializeServices();
   }
 
+  void _showNotificationSnackbar(ControlMessage message) {
+    if (!mounted) return;
+
+    final String title = MessageMapping.getChineseAbbreviation(message.type);
+    final String subtitle = '来自: ${message.from}';
+    final String? payloadText =
+        message.payload != null && message.payload!.isNotEmpty
+            ? jsonEncode(message.payload)
+            : null;
+
+    final SnackBar snackBar = SnackBar(
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text(subtitle, style: const TextStyle(fontSize: 12)),
+          if (payloadText != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                payloadText,
+                style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+              ),
+            ),
+        ],
+      ),
+      behavior: SnackBarBehavior.floating,
+      margin: EdgeInsets.fromLTRB(
+        16,
+        16 + MediaQuery.of(context).padding.top,
+        16,
+        0,
+      ),
+      duration: const Duration(seconds: 3),
+    );
+
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(snackBar);
+  }
+
   Future<void> _initializeServices() async {
     try {
       _hardwareService = HardwareService();
@@ -82,6 +125,7 @@ class _ControlledPageState extends State<ControlledPage> {
       if (message.type != MessageTypes.heartbeat) {
         _lastControllerContact = DateTime.now();
         _controllerDeviceId = message.from;
+        _showNotificationSnackbar(message);
       }
       
       _processMessage(message);
@@ -117,16 +161,20 @@ class _ControlledPageState extends State<ControlledPage> {
 
   Future<void> _sendAck(ControlMessage originalMessage) async {
     try {
-      final Map<String, dynamic> ack = <String, dynamic>{
-        'type': MessageTypes.ack,
-        'from': _deviceId,
-        'to': originalMessage.from,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-        'originalMessageId': originalMessage.messageId,
-      };
-      
+      final int now = DateTime.now().millisecondsSinceEpoch;
+      final ControlMessage ack = ControlMessage(
+        type: MessageTypes.ack,
+        messageId: 'ack-$now',
+        from: _deviceId,
+        to: originalMessage.from,
+        timestampMs: now,
+        payload: <String, dynamic>{
+          'originalMessageId': originalMessage.messageId,
+        },
+      );
+
       await _udpService.sendBroadcast(
-        jsonPayload: jsonEncode(ack),
+        jsonPayload: ack.toJson(),
         port: _targetPort,
       );
       _addLog('发送ACK: ${originalMessage.type}');
@@ -137,21 +185,23 @@ class _ControlledPageState extends State<ControlledPage> {
 
   Future<void> _sendHeartbeat() async {
     try {
-      final Map<String, dynamic> heartbeat = <String, dynamic>{
-        'type': MessageTypes.heartbeat,
-        'from': _deviceId,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-        'status': <String, dynamic>{
+      final int now = DateTime.now().millisecondsSinceEpoch;
+      final ControlMessage heartbeat = ControlMessage(
+        type: MessageTypes.heartbeat,
+        messageId: 'hb-$now',
+        from: _deviceId,
+        timestampMs: now,
+        payload: <String, dynamic>{
           'battery': _batteryLevel,
           'charging': _isCharging,
           'storage': _storageFree,
           'cpuTemp': _cpuTemp,
           'wifiSignal': _wifiSignalStrength,
         },
-      };
-      
+      );
+
       await _udpService.sendBroadcast(
-        jsonPayload: jsonEncode(heartbeat),
+        jsonPayload: heartbeat.toJson(),
         port: _targetPort,
       );
     } catch (e) {
@@ -411,7 +461,8 @@ class _ControlledPageState extends State<ControlledPage> {
                     child: ListView.builder(
                       itemCount: _logs.length,
                       itemBuilder: (context, index) {
-                        final String log = _logs[index];
+                        final int reversedIndex = _logs.length - 1 - index;
+                        final String log = _logs[reversedIndex];
                         return Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                           color: index % 2 == 0 ? Colors.grey.shade50 : Colors.white,

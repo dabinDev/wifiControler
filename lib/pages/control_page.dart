@@ -26,6 +26,10 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
   final Set<String> _onlineDevices = <String>{};
   final Map<String, DateTime> _deviceLastSeen = <String, DateTime>{};
   final Set<String> _ackDevices = <String>{};
+  final Map<String, ControlMessage> _deviceLastMessage = <String, ControlMessage>{};
+  final Set<String> _expandedDevices = <String>{};
+  final Map<String, Map<String, dynamic>> _deviceStatus =
+      <String, Map<String, dynamic>>{};
 
   StreamSubscription<enhanced_udp.UdpDatagramEvent>? _eventSub;
   Timer? _heartbeatTimer;
@@ -77,6 +81,10 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
       if (message.from != _deviceId) {
         _onlineDevices.add(message.from);
         _deviceLastSeen[message.from] = DateTime.now();
+        _deviceLastMessage[message.from] = message;
+        if (message.type == MessageTypes.heartbeat && message.payload != null) {
+          _deviceStatus[message.from] = message.payload!;
+        }
         
         // 收到任何消息都认为是设备在线的标志
         _ackDevices.add(message.from);
@@ -90,14 +98,16 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
 
   Future<void> _sendHeartbeat() async {
     try {
-      final Map<String, dynamic> heartbeat = <String, dynamic>{
-        'type': MessageTypes.heartbeat,
-        'from': _deviceId,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      };
-      
+      final int now = DateTime.now().millisecondsSinceEpoch;
+      final ControlMessage heartbeat = ControlMessage(
+        type: MessageTypes.heartbeat,
+        messageId: 'hb-$now',
+        from: _deviceId,
+        timestampMs: now,
+      );
+
       await _udpService.sendBroadcast(
-        jsonPayload: jsonEncode(heartbeat),
+        jsonPayload: heartbeat.toJson(),
         port: _targetPort,
       );
     } catch (e) {
@@ -139,21 +149,33 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
       return;
     }
     
-    final Map<String, dynamic> command = <String, dynamic>{
-      'type': typeOrCommand,
-      'from': _deviceId,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-      'messageId': '${DateTime.now().millisecondsSinceEpoch}-${_deviceId.hashCode}',
-    };
-    
     final String payload = _payloadController.text.trim();
+    Map<String, dynamic>? payloadMap;
     if (payload.isNotEmpty) {
-      command['payload'] = payload;
+      try {
+        final dynamic decoded = jsonDecode(payload);
+        if (decoded is Map<String, dynamic>) {
+          payloadMap = decoded;
+        } else {
+          payloadMap = <String, dynamic>{'value': decoded};
+        }
+      } catch (_) {
+        payloadMap = <String, dynamic>{'raw': payload};
+      }
     }
+
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    final ControlMessage command = ControlMessage(
+      type: typeOrCommand,
+      messageId: 'cmd-$now-${_deviceId.hashCode}',
+      from: _deviceId,
+      timestampMs: now,
+      payload: payloadMap,
+    );
     
     try {
       await _udpService.sendBroadcast(
-        jsonPayload: jsonEncode(command),
+        jsonPayload: command.toJson(),
         port: _targetPort,
       );
       _addLog('发送命令: $typeOrCommand');
@@ -254,6 +276,36 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
         ],
       ),
     );
+  }
+
+  String _formatBattery(dynamic value) {
+    if (value == null) return '-';
+    final num? battery = value is num ? value : num.tryParse(value.toString());
+    return battery != null ? '${battery.toStringAsFixed(1)}%' : value.toString();
+  }
+
+  String _formatCharging(dynamic value) {
+    if (value == null) return '-';
+    if (value is bool) return value ? '是' : '否';
+    return value.toString();
+  }
+
+  String _formatStorage(dynamic value) {
+    if (value == null) return '-';
+    final num? storage = value is num ? value : num.tryParse(value.toString());
+    return storage != null ? '${storage.toStringAsFixed(2)} GB' : value.toString();
+  }
+
+  String _formatTemperature(dynamic value) {
+    if (value == null) return '-';
+    final num? temp = value is num ? value : num.tryParse(value.toString());
+    return temp != null ? '${temp.toStringAsFixed(1)} °C' : value.toString();
+  }
+
+  String _formatWifi(dynamic value) {
+    if (value == null) return '-';
+    final num? signal = value is num ? value : num.tryParse(value.toString());
+    return signal != null ? '${signal.toStringAsFixed(0)} dBm' : value.toString();
   }
 
   Widget _buildCommandTab() {
@@ -369,6 +421,9 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
                     _onlineDevices.clear();
                     _deviceLastSeen.clear();
                     _ackDevices.clear();
+                    _deviceLastMessage.clear();
+                    _expandedDevices.clear();
+                    _deviceStatus.clear();
                   });
                 },
                 child: const Text('清空'),
@@ -387,26 +442,113 @@ class _ControlPageState extends State<ControlPage> with TickerProviderStateMixin
                       final String deviceId = _onlineDevices.elementAt(index);
                       final DateTime? lastSeen = _deviceLastSeen[deviceId];
                       final bool hasAck = _ackDevices.contains(deviceId);
+                      final ControlMessage? lastMessage = _deviceLastMessage[deviceId];
+                      final bool isExpanded = _expandedDevices.contains(deviceId);
+                      final Map<String, dynamic>? status = _deviceStatus[deviceId];
                       
                       return Card(
-                        child: ListTile(
+                        child: ExpansionTile(
+                          key: PageStorageKey<String>('device-$deviceId'),
+                          initiallyExpanded: isExpanded,
+                          onExpansionChanged: (expanded) {
+                            setState(() {
+                              if (expanded) {
+                                _expandedDevices.add(deviceId);
+                              } else {
+                                _expandedDevices.remove(deviceId);
+                              }
+                            });
+                          },
                           leading: Icon(
                             Icons.smartphone,
                             color: hasAck ? Colors.green : Colors.blue,
                           ),
                           title: Text(deviceId),
                           subtitle: Text(
-                            lastSeen != null 
+                            lastSeen != null
                                 ? '最后 seen: ${lastSeen.toIso8601String().substring(11, 19)}'
                                 : 'Unknown',
                           ),
-                          trailing: hasAck 
+                          trailing: hasAck
                               ? const Icon(Icons.check_circle, color: Colors.green)
                               : null,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _buildDeviceDetailRow('最近消息', lastMessage?.type ?? '-'),
+                                  _buildDeviceDetailRow(
+                                    '消息ID',
+                                    lastMessage?.messageId ?? '-',
+                                  ),
+                                  _buildDeviceDetailRow(
+                                    '时间戳',
+                                    lastMessage != null
+                                        ? lastMessage.timestampMs.toString()
+                                        : '-',
+                                  ),
+                                  if (status != null) ...[
+                                    const SizedBox(height: 4),
+                                    _buildDeviceDetailRow(
+                                      '电池',
+                                      _formatBattery(status['battery']),
+                                    ),
+                                    _buildDeviceDetailRow(
+                                      '充电',
+                                      _formatCharging(status['charging']),
+                                    ),
+                                    _buildDeviceDetailRow(
+                                      '存储',
+                                      _formatStorage(status['storage']),
+                                    ),
+                                    _buildDeviceDetailRow(
+                                      'CPU温度',
+                                      _formatTemperature(status['cpuTemp']),
+                                    ),
+                                    _buildDeviceDetailRow(
+                                      'WiFi',
+                                      _formatWifi(status['wifiSignal']),
+                                    ),
+                                  ],
+                                  if (lastMessage?.payload != null)
+                                    _buildDeviceDetailRow(
+                                      'Payload',
+                                      jsonEncode(lastMessage!.payload),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       );
                     },
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDeviceDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(
+              label,
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 12),
+            ),
           ),
         ],
       ),

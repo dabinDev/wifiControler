@@ -1,147 +1,125 @@
+import 'package:flutter/material.dart';
+
+import '../protocol/message_types.dart';
+
 /// 应用常量配置
 class AppConstants {
-  // 私有构造函数，防止实例化
   AppConstants._();
-  
-  /// 应用信息
+
   static const String appName = 'UDP Control Suite';
   static const String appVersion = '1.0.0';
   static const String appDescription = 'Flutter UDP Control Suite - 设备控制与管理应用';
-  
-  /// 网络配置
-  static class Network {
-    static const int defaultUdpPort = 8888;
-    static const int maxRetries = 3;
-    static const int connectionTimeout = 5000; // 毫秒
-    static const int heartbeatInterval = 30000; // 毫秒
-    static const int deviceCleanupInterval = 15000; // 毫秒
-    static const int messageSendTimeout = 3000; // 毫秒
-    static const int broadcastInterval = 1000; // 毫秒
-  }
-  
-  /// 数据库配置
-  static class Database {
-    static const String databaseName = 'udp_control.db';
-    static const int databaseVersion = 1;
-    static const int maxLogEntries = 10000;
-    static const int maxMessageHistory = 1000;
-    static const int maxDeviceHistory = 500;
-    static const int cleanupInterval = 24; // 小时
-  }
-  
-  /// 文件存储配置
-  static class Storage {
-    static const String capturesDir = 'captures';
-    static const String recordingsDir = 'recordings';
-    static const String logsDir = 'logs';
-    static const String tempDir = 'temp';
-    static const int maxFileSize = 100 * 1024 * 1024; // 100MB
-    static const int maxStorageAge = 7; // 天
-    static const int maxCacheSize = 500 * 1024 * 1024; // 500MB
-  }
-  
-  /// UI配置
-  static class UI {
-    static const double defaultBorderRadius = 12.0;
-    static const double smallBorderRadius = 8.0;
-    static const double largeBorderRadius = 16.0;
-    static const double defaultSpacing = 16.0;
-    static const double smallSpacing = 8.0;
-    static const double largeSpacing = 24.0;
-    static const double defaultPadding = 16.0;
-    static const double smallPadding = 8.0;
-    static const double largePadding = 24.0;
-    static const int defaultAnimationDuration = 300; // 毫秒
-    static const int fastAnimationDuration = 150; // 毫秒
-    static const int slowAnimationDuration = 500; // 毫秒
-  }
-  
-  /// 权限配置
-  static class Permissions {
-    static const List<String> requiredPermissions = <String>[
-      'camera',
-      'microphone',
-      'storage',
-      'notifications',
-    ];
-    static const List<String> optionalPermissions = <String>[
-      'location',
-      'phone',
-    ];
-  }
-  
-  /// 设备配置
-  static class Device {
-    static const String controllerPrefix = 'ctrl';
-    static const String controlledPrefix = 'dev';
-    static const int deviceIdLength = 16;
-    static const int deviceSecretLength = 32;
-    static const int tokenExpirationHours = 24;
-    static const int maxTrustedDevices = 50;
-    static const int maxBlockedDevices = 100;
-  }
-  
-  /// 日志配置
-  static class Logging {
-    static const int maxLogFileSize = 10 * 1024 * 1024; // 10MB
-    static const int maxLogFiles = 5;
-    static const int logRetentionDays = 7;
-    static const bool enableFileLogging = true;
-    static const bool enableConsoleLogging = true;
-  }
-  
-  /// 安全配置
-  static class Security {
-    static const int maxLoginAttempts = 5;
-    static const int lockoutDuration = 300; // 秒
-    static const int sessionTimeout = 3600; // 秒
-    static const int passwordMinLength = 8;
-    static const bool requireDeviceAuth = true;
-    static const bool encryptCommunication = true;
-  }
-  
-  /// 性能配置
-  static class Performance {
-    static const int maxConcurrentOperations = 10;
-    static const int cacheExpirationMinutes = 30;
-    static const int memoryCleanupInterval = 300; // 秒
-    static const int maxMemoryUsage = 200 * 1024 * 1024; // 200MB
-    static const bool enablePerformanceMonitoring = true;
-  }
 }
 
-/// 消息类型常量
-class MessageTypes {
-  // 私有构造函数
-  MessageTypes._();
-  
-  /// 控制消息
-  static const String hello = 'HELLO';
-  static const String discover = 'DISCOVER';
-  static const String heartbeat = 'HEARTBEAT';
-  static const String ack = 'ACK';
-  
-  /// 命令消息
-  static const String cmdPhoto = 'CMD_PHOTO';
-  static const String cmdRecordStart = 'CMD_RECORD_START';
-  static const String cmdRecordStop = 'CMD_RECORD_STOP';
-  static const String cmdUpload = 'CMD_UPLOAD';
-  static const String cmdStatus = 'CMD_STATUS';
-  static const String cmdReboot = 'CMD_REBOOT';
-  static const String cmdShutdown = 'CMD_SHUTDOWN';
-  
-  /// 响应消息
-  static const String respPhoto = 'RESP_PHOTO';
-  static const String respRecord = 'RESP_RECORD';
-  static const String respUpload = 'RESP_UPLOAD';
-  static const String respStatus = 'RESP_STATUS';
-  static const String respError = 'RESP_ERROR';
-  
-  /// 状态消息
-  static const String statusOnline = 'STATUS_ONLINE';
-  static const String statusOffline = 'STATUS_OFFLINE';
-  static const String statusBusy = 'STATUS_BUSY';
-  static const String statusError = 'STATUS_ERROR';
+class NetworkConfig {
+  NetworkConfig._();
+
+  static const int defaultUdpPort = 8888;
+  static const int maxRetries = 3;
+  static const int connectionTimeout = 5000; // 毫秒
+  static const int heartbeatInterval = 30000; // 毫秒
+  static const int deviceCleanupInterval = 15000; // 毫秒
+  static const int messageSendTimeout = 3000; // 毫秒
+  static const int broadcastInterval = 1000; // 毫秒
+}
+
+class DatabaseConfig {
+  DatabaseConfig._();
+
+  static const String databaseName = 'udp_control.db';
+  static const int databaseVersion = 1;
+  static const int maxLogEntries = 10000;
+  static const int maxMessageHistory = 1000;
+  static const int maxDeviceHistory = 500;
+  static const int cleanupInterval = 24; // 小时
+}
+
+class StorageConfig {
+  StorageConfig._();
+
+  static const String capturesDir = 'captures';
+  static const String recordingsDir = 'recordings';
+  static const String logsDir = 'logs';
+  static const String tempDir = 'temp';
+  static const int maxFileSize = 100 * 1024 * 1024; // 100MB
+  static const int maxStorageAge = 7; // 天
+  static const int maxCacheSize = 500 * 1024 * 1024; // 500MB
+}
+
+class UiConstants {
+  UiConstants._();
+
+  static const double defaultBorderRadius = 12.0;
+  static const double smallBorderRadius = 8.0;
+  static const double largeBorderRadius = 16.0;
+  static const double defaultSpacing = 16.0;
+  static const double smallSpacing = 8.0;
+  static const double largeSpacing = 24.0;
+  static const double defaultPadding = 16.0;
+  static const double smallPadding = 8.0;
+  static const double largePadding = 24.0;
+  static const int defaultAnimationDuration = 300; // 毫秒
+  static const int fastAnimationDuration = 150; // 毫秒
+  static const int slowAnimationDuration = 500; // 毫秒
+}
+
+class PermissionConfig {
+  PermissionConfig._();
+
+  static const List<String> requiredPermissions = <String>[
+    'camera',
+    'microphone',
+    'storage',
+    'notifications',
+  ];
+
+  static const List<String> optionalPermissions = <String>[
+    'location',
+    'phone',
+  ];
+}
+
+class DeviceConfig {
+  DeviceConfig._();
+
+  static const String controllerPrefix = 'ctrl';
+  static const String controlledPrefix = 'dev';
+  static const int deviceIdLength = 16;
+  static const int deviceSecretLength = 32;
+  static const int tokenExpirationHours = 24;
+  static const int maxTrustedDevices = 50;
+  static const int maxBlockedDevices = 100;
+}
+
+class LoggingConfig {
+  LoggingConfig._();
+
+  static const int maxLogFileSize = 10 * 1024 * 1024; // 10MB
+  static const int maxLogFiles = 5;
+  static const int logRetentionDays = 7;
+  static const bool enableFileLogging = true;
+  static const bool enableConsoleLogging = true;
+}
+
+class SecurityConfig {
+  SecurityConfig._();
+
+  static const int maxLoginAttempts = 5;
+  static const int lockoutDuration = 300; // 秒
+  static const int sessionTimeout = 3600; // 秒
+  static const int passwordMinLength = 8;
+  static const bool requireDeviceAuth = true;
+  static const bool encryptCommunication = true;
+}
+
+class PerformanceConfig {
+  PerformanceConfig._();
+
+  static const int maxConcurrentOperations = 10;
+  static const int cacheExpirationMinutes = 30;
+  static const int memoryCleanupInterval = 300; // 秒
+  static const int maxMemoryUsage = 200 * 1024 * 1024; // 200MB
+  static const bool enablePerformanceMonitoring = true;
 }
 
 /// 消息类型映射
@@ -151,22 +129,22 @@ class MessageMapping {
     MessageTypes.discover: '发现',
     MessageTypes.heartbeat: '心跳',
     MessageTypes.ack: '确认',
-    MessageTypes.cmdPhoto: '拍照',
+    MessageTypes.cmdTakePhoto: '拍照',
     MessageTypes.cmdRecordStart: '开始录像',
     MessageTypes.cmdRecordStop: '停止录像',
-    MessageTypes.cmdUpload: '上传',
-    MessageTypes.cmdStatus: '状态',
-    MessageTypes.cmdReboot: '重启',
-    MessageTypes.cmdShutdown: '关机',
-    MessageTypes.respPhoto: '拍照响应',
-    MessageTypes.respRecord: '录像响应',
-    MessageTypes.respUpload: '上传响应',
-    MessageTypes.respStatus: '状态响应',
-    MessageTypes.respError: '错误响应',
-    MessageTypes.statusOnline: '在线',
-    MessageTypes.statusOffline: '离线',
-    MessageTypes.statusBusy: '忙碌',
-    MessageTypes.statusError: '错误',
+    MessageTypes.cmdAudioStart: '开始录音',
+    MessageTypes.cmdAudioStop: '停止录音',
+    MessageTypes.cmdFileUpload: '上传文件',
+    MessageTypes.cmdUploadCancel: '取消上传',
+    MessageTypes.cmdRtcStart: '开始推流',
+    MessageTypes.cmdRtcStop: '停止推流',
+    MessageTypes.cmdCamSwitch: '切换相机',
+    MessageTypes.cmdZoomSet: '设置变焦',
+    MessageTypes.cmdTorchSet: '设置闪光灯',
+    MessageTypes.cmdFocusSet: '设置对焦',
+    MessageTypes.cmdCleanFiles: '清理文件',
+    MessageTypes.cmdAppRestart: '重启应用',
+    MessageTypes.cmdLogQuery: '查询日志',
   };
   
   static const Map<String, String> descriptions = <String, String>{
@@ -174,22 +152,22 @@ class MessageMapping {
     MessageTypes.discover: '设备发现请求',
     MessageTypes.heartbeat: '心跳保持连接',
     MessageTypes.ack: '消息确认回复',
-    MessageTypes.cmdPhoto: '拍照命令',
+    MessageTypes.cmdTakePhoto: '拍照命令',
     MessageTypes.cmdRecordStart: '开始录像命令',
     MessageTypes.cmdRecordStop: '停止录像命令',
-    MessageTypes.cmdUpload: '文件上传命令',
-    MessageTypes.cmdStatus: '状态查询命令',
-    MessageTypes.cmdReboot: '设备重启命令',
-    MessageTypes.cmdShutdown: '设备关机命令',
-    MessageTypes.respPhoto: '拍照结果响应',
-    MessageTypes.respRecord: '录像结果响应',
-    MessageTypes.respUpload: '上传结果响应',
-    MessageTypes.respStatus: '设备状态响应',
-    MessageTypes.respError: '操作错误响应',
-    MessageTypes.statusOnline: '设备在线状态',
-    MessageTypes.statusOffline: '设备离线状态',
-    MessageTypes.statusBusy: '设备忙碌状态',
-    MessageTypes.statusError: '设备错误状态',
+    MessageTypes.cmdAudioStart: '开始录音命令',
+    MessageTypes.cmdAudioStop: '停止录音命令',
+    MessageTypes.cmdFileUpload: '文件上传命令',
+    MessageTypes.cmdUploadCancel: '取消上传命令',
+    MessageTypes.cmdRtcStart: '开始推流命令',
+    MessageTypes.cmdRtcStop: '停止推流命令',
+    MessageTypes.cmdCamSwitch: '切换相机命令',
+    MessageTypes.cmdZoomSet: '设置变焦命令',
+    MessageTypes.cmdTorchSet: '设置闪光灯命令',
+    MessageTypes.cmdFocusSet: '设置对焦命令',
+    MessageTypes.cmdCleanFiles: '清理文件命令',
+    MessageTypes.cmdAppRestart: '重启应用命令',
+    MessageTypes.cmdLogQuery: '日志查询命令',
   };
   
   /// 根据消息类型获取中文缩写
@@ -215,35 +193,33 @@ class MessageMapping {
   /// 获取所有控制命令
   static List<String> getCommandMessages() {
     return <String>[
-      MessageTypes.cmdPhoto,
       MessageTypes.cmdRecordStart,
       MessageTypes.cmdRecordStop,
-      MessageTypes.cmdUpload,
-      MessageTypes.cmdStatus,
-      MessageTypes.cmdReboot,
-      MessageTypes.cmdShutdown,
+      MessageTypes.cmdTakePhoto,
+      MessageTypes.cmdAudioStart,
+      MessageTypes.cmdAudioStop,
+      MessageTypes.cmdFileUpload,
+      MessageTypes.cmdUploadCancel,
+      MessageTypes.cmdRtcStart,
+      MessageTypes.cmdRtcStop,
+      MessageTypes.cmdCamSwitch,
+      MessageTypes.cmdZoomSet,
+      MessageTypes.cmdTorchSet,
+      MessageTypes.cmdFocusSet,
+      MessageTypes.cmdCleanFiles,
+      MessageTypes.cmdAppRestart,
+      MessageTypes.cmdLogQuery,
     ];
   }
   
   /// 获取所有响应消息
   static List<String> getResponseMessages() {
-    return <String>[
-      MessageTypes.respPhoto,
-      MessageTypes.respRecord,
-      MessageTypes.respUpload,
-      MessageTypes.respStatus,
-      MessageTypes.respError,
-    ];
+    return <String>[];
   }
   
   /// 获取所有状态消息
   static List<String> getStatusMessages() {
-    return <String>[
-      MessageTypes.statusOnline,
-      MessageTypes.statusOffline,
-      MessageTypes.statusBusy,
-      MessageTypes.statusError,
-    ];
+    return <String>[];
   }
   
   /// 获取所有系统消息

@@ -1,3 +1,5 @@
+import com.android.build.gradle.LibraryExtension
+
 allprojects {
     repositories {
         maven { url = uri("https://maven.aliyun.com/repository/google") }
@@ -44,6 +46,23 @@ subprojects {
 
 subprojects {
     project.evaluationDependsOn(":app")
+    plugins.withId("com.android.library") {
+        extensions.configure<LibraryExtension> {
+            if (namespace.isNullOrBlank()) {
+                namespace = "com.example.webrtc.${project.name}"
+            }
+            compileSdk = 34
+            compileOptions {
+                sourceCompatibility = JavaVersion.VERSION_11
+                targetCompatibility = JavaVersion.VERSION_11
+            }
+        }
+    }
+    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
+        kotlinOptions {
+            jvmTarget = "11"
+        }
+    }
 }
 
 tasks.register<Delete>("clean") {

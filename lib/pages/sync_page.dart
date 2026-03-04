@@ -8,7 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
-import 'package:gallery_saver/gallery_saver.dart';
+import 'package:image_gallery_saver/image_gallery_saver.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../models/control_message.dart';
@@ -91,9 +91,9 @@ class _SyncPageState extends State<SyncPage> {
       }
 
       if (isImage) {
-        await GallerySaver.saveImage(filePath, albumName: 'UDP Sync');
+        await ImageGallerySaver.saveFile(filePath, name: 'UDP_Sync');
       } else if (isVideo) {
-        await GallerySaver.saveVideo(filePath, albumName: 'UDP Sync');
+        await ImageGallerySaver.saveFile(filePath, name: 'UDP_Sync');
       } else {
         final Directory savedDir = await _resolveAudioSaveDir();
         if (!await savedDir.exists()) {

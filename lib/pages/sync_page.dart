@@ -42,7 +42,11 @@ class _SyncPageState extends State<SyncPage> {
   StreamSubscription<enhanced_udp.UdpDatagramEvent>? _eventSub;
   String? _selectedDevice;
   bool _syncing = false;
+  bool _syncSuccess = false;
   String _syncStatus = '待同步';
+  int _totalFiles = 0;
+  int _currentFileIndex = 0;
+  int _currentFileProgress = 0;
 
   final List<Map<String, dynamic>> _remoteFiles = <Map<String, dynamic>>[];
   final Map<String, Map<int, List<int>>> _chunkBuffers =
@@ -241,8 +245,18 @@ class _SyncPageState extends State<SyncPage> {
     _chunkTotals[fileId] = total;
     _chunkBuffers.putIfAbsent(fileId, () => <int, List<int>>{});
     _chunkBuffers[fileId]![index] = base64Decode(data);
+    
+    // 计算当前文件进度
+    final int currentFileChunks = _chunkBuffers[fileId]!.length;
+    final int fileProgress = ((currentFileChunks / total) * 100).round();
+    
+    // 找到当前文件在列表中的索引
+    final int fileIndex = _downloadedFiles.indexWhere((file) => file.contains(fileId));
+    final int displayIndex = fileIndex >= 0 ? fileIndex + 1 : _currentFileIndex + 1;
+    
     setState(() {
-      _syncStatus = '接收中: $fileId (${_chunkBuffers[fileId]!.length}/$total)';
+      _currentFileProgress = fileProgress;
+      _syncStatus = '同步中: $displayIndex/$_totalFiles ($fileProgress%)';
     });
   }
 
@@ -253,23 +267,7 @@ class _SyncPageState extends State<SyncPage> {
     final int? total = _chunkTotals[fileId];
     final Map<int, List<int>>? chunks = _chunkBuffers[fileId];
     if (total == null || chunks == null || chunks.length < (total ?? 0)) {
-      if (total == null) {
-        return;
-      }
-      final List<int> missing = _resolveMissingIndexes(total, chunks);
-      final int retries = _missingRetries[fileId] ?? 0;
-      if (missing.isEmpty) return;
-      if (retries >= _maxMissingRetries) {
-        setState(() {
-          _syncStatus = '文件缺块: $fileName (重试失败)';
-        });
-        return;
-      }
-      _missingRetries[fileId] = retries + 1;
-      await _requestMissingChunks(fileId, missing);
-      setState(() {
-        _syncStatus = '请求缺块: $fileName (${missing.length})';
-      });
+      _addLog('文件不完整: $fileName');
       return;
     }
 
@@ -290,9 +288,27 @@ class _SyncPageState extends State<SyncPage> {
 
     setState(() {
       _downloadedFiles.add(outFile.path);
-      _syncStatus = '同步完成: $fileName';
+      _currentFileIndex = _downloadedFiles.length;
+      _currentFileProgress = 100;
+      _syncStatus = '同步中: $_currentFileIndex/$_totalFiles (100%)';
     });
     _missingRetries.remove(fileId);
+    _addLog('文件完成: $fileName');
+
+    // 检查是否所有文件都完成
+    if (_downloadedFiles.length >= _totalFiles) {
+      setState(() {
+        _syncing = false;
+        _syncSuccess = true;
+        _syncStatus = '同步完成: $_totalFiles/$_totalFiles (100%)';
+      });
+      _addLog('所有文件同步完成');
+    }
+  }
+
+  void _addLog(String message) {
+    // 同步页面的日志方法（简单实现）
+    print('SyncPage: $message');
   }
 
   int? _toInt(dynamic value) {
@@ -323,6 +339,7 @@ class _SyncPageState extends State<SyncPage> {
     );
     setState(() {
       _syncStatus = '请求列表中...';
+      _syncSuccess = false;
     });
   }
 
@@ -335,7 +352,11 @@ class _SyncPageState extends State<SyncPage> {
     }
     setState(() {
       _syncing = true;
-      _syncStatus = '开始同步 ${_remoteFiles.length} 个文件';
+      _syncSuccess = false;
+      _totalFiles = _remoteFiles.length;
+      _currentFileIndex = 0;
+      _currentFileProgress = 0;
+      _syncStatus = '开始同步 $_totalFiles 个文件';
       _downloadedFiles.clear();
     });
     for (final Map<String, dynamic> file in _remoteFiles) {
@@ -346,9 +367,7 @@ class _SyncPageState extends State<SyncPage> {
       await _requestFile(file['fileId']?.toString());
       await Future<void>.delayed(const Duration(milliseconds: 150));
     }
-    setState(() {
-      _syncing = false;
-    });
+    // 不要在这里设置_syncing = false，等所有文件完成后再设置
   }
 
   Future<void> _requestFile(String? fileId) async {
@@ -463,8 +482,12 @@ class _SyncPageState extends State<SyncPage> {
                         onPressed: _selectedDevice == null || _syncing
                             ? null
                             : _requestList,
-                        icon: const Icon(Icons.sync),
-                        label: const Text('同步'),
+                        icon: Icon(_syncSuccess ? Icons.check_circle : Icons.sync),
+                        label: Text(_syncSuccess ? '同步成功' : '同步'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _syncSuccess ? Colors.green : null,
+                          foregroundColor: _syncSuccess ? Colors.white : null,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),

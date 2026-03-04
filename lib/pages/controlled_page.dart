@@ -39,12 +39,19 @@ class _ControlledPageState extends State<ControlledPage> {
   DateTime? _lastControllerContact;
   final Map<String, String> _mediaIndex = <String, String>{};
 
+  // 全局操作状态管理
+  String? _currentOperation; // 当前正在执行的操作类型
+  static const String operationPhoto = 'photo';
+  static const String operationVideo = 'video';
+  static const String operationAudio = 'audio';
+
   // Device status
   double _batteryLevel = 85.0;
   bool _isCharging = false;
   double _storageFree = 32.5;
   double _cpuTemp = 42.0;
   int _wifiSignalStrength = -45;
+  bool _updatingStatus = false; // 防止并发状态更新
 
   @override
   void initState() {
@@ -148,6 +155,26 @@ class _ControlledPageState extends State<ControlledPage> {
   }
 
   void _processMessage(ControlMessage message, String senderIp, int senderPort) {
+    // 对于所有操作指令（除心跳外），先检查是否需要停止当前操作
+    if (_isOperationMessage(message.type)) {
+      // 特殊处理：如果是开始录音指令且当前正在录音，则只停止不开始新的
+      if (message.type == MessageTypes.cmdAudioStart && _currentOperation == operationAudio) {
+        _addLog('录音中再次点击录音，停止当前录音');
+        _stopCurrentOperation();
+        return; // 不执行新的录音开始
+      }
+      
+      // 特殊处理：如果是开始录像指令且当前正在录像，则只停止不开始新的
+      if (message.type == MessageTypes.cmdRecordStart && _currentOperation == operationVideo) {
+        _addLog('录像中再次点击录像，停止当前录像');
+        _stopCurrentOperation();
+        return; // 不执行新的录像开始
+      }
+      
+      // 其他情况：停止当前操作并执行新操作
+      _stopCurrentOperation();
+    }
+    
     switch (message.type) {
       case MessageTypes.hello:
         _sendAck(message);
@@ -179,6 +206,44 @@ class _ControlledPageState extends State<ControlledPage> {
       default:
         _addLog('未知命令类型: ${message.type}');
     }
+  }
+
+  bool _isOperationMessage(String messageType) {
+    // 判断是否为操作指令（需要停止之前操作的指令）
+    const List<String> operationMessages = <String>[
+      MessageTypes.cmdTakePhoto,
+      MessageTypes.cmdRecordStart,
+      MessageTypes.cmdRecordStop,
+      MessageTypes.cmdAudioStart,
+      MessageTypes.cmdAudioStop,
+    ];
+    return operationMessages.contains(messageType);
+  }
+
+  void _stopCurrentOperation() {
+    if (_currentOperation == null) return;
+    
+    _addLog('停止当前操作: $_currentOperation');
+    
+    switch (_currentOperation) {
+      case operationVideo:
+        _hardwareService.stopVideoRecording().catchError((e) {
+          _addLog('停止视频录制失败: $e');
+        });
+        break;
+      case operationAudio:
+        _hardwareService.stopAudioRecording().catchError((e) {
+          _addLog('停止音频录制失败: $e');
+        });
+        break;
+      case operationPhoto:
+        // 拍照是瞬时操作，通常不需要停止
+        break;
+    }
+    
+    _currentOperation = null;
+    // 发送状态更新
+    _sendHeartbeat();
   }
 
   Future<void> _handleSyncListRequest(
@@ -242,10 +307,17 @@ class _ControlledPageState extends State<ControlledPage> {
         _addLog('缺块请求无效: $fileId');
         return;
       }
-      final List<int> indexes = missing
-          .map((dynamic value) => int.tryParse(value.toString()))
-          .whereType<int>()
-          .toList();
+      final List<int> indexes = <int>[];
+      for (final dynamic value in missing) {
+        if (value is int) {
+          indexes.add(value);
+        } else if (value is String) {
+          final int? parsed = int.tryParse(value);
+          if (parsed != null) {
+            indexes.add(parsed);
+          }
+        }
+      }
       await _sendFileChunks(
         fileId: fileId,
         filePath: _mediaIndex[fileId]!,
@@ -432,25 +504,64 @@ class _ControlledPageState extends State<ControlledPage> {
         port: _targetPort,
       );
     } catch (e) {
-      _addLog('心跳发送失败: $e');
+      // 过滤掉频繁的网络错误日志
+      if (!e.toString().contains('SocketException')) {
+        _addLog('心跳发送失败: $e');
+      }
     }
   }
 
   Future<void> _updateStatus() async {
+    // 防止并发更新
+    if (_updatingStatus) return;
+    _updatingStatus = true;
+    
     try {
       final Map<String, dynamic> batteryInfo = await _hardwareService.getBatteryInfo();
       final Map<String, dynamic> storageInfo = await _hardwareService.getStorageInfo();
       final Map<String, dynamic> networkInfo = await _hardwareService.getNetworkInfo();
       
+      if (!mounted) return;
+      
       setState(() {
-        _batteryLevel = (batteryInfo['level'] as int).toDouble();
-        _isCharging = batteryInfo['isCharging'] as bool;
-        _storageFree = storageInfo['freeGB'] as double;
+        // 安全处理电池电量 - 确保转换为double
+        final dynamic batteryLevel = batteryInfo['level'];
+        if (batteryLevel is int) {
+          _batteryLevel = batteryLevel.toDouble();
+        } else if (batteryLevel is double) {
+          _batteryLevel = batteryLevel;
+        } else {
+          _batteryLevel = 0.0;
+        }
+        
+        _isCharging = batteryInfo['isCharging'] as bool? ?? false;
+        
+        // 安全处理存储空间 - 确保转换为double
+        final dynamic storageFree = storageInfo['freeGB'];
+        if (storageFree is int) {
+          _storageFree = storageFree.toDouble();
+        } else if (storageFree is double) {
+          _storageFree = storageFree;
+        } else {
+          _storageFree = 0.0;
+        }
+        
         _cpuTemp = _hardwareService.getCpuTemp();
-        _wifiSignalStrength = networkInfo['signalStrength'] as int;
+        
+        // 安全处理WiFi信号强度 - 确保转换为int
+        final dynamic signalStrength = networkInfo['signalStrength'];
+        if (signalStrength is int) {
+          _wifiSignalStrength = signalStrength;
+        } else if (signalStrength is double) {
+          _wifiSignalStrength = signalStrength.toInt();
+        } else {
+          _wifiSignalStrength = 0;
+        }
       });
     } catch (e) {
       _addLog('状态更新失败: $e');
+    } finally {
+      _updatingStatus = false;
     }
   }
 
@@ -458,6 +569,9 @@ class _ControlledPageState extends State<ControlledPage> {
     _addLog('执行拍照命令...');
     
     try {
+      // 设置当前操作状态
+      _currentOperation = operationPhoto;
+      
       final String? photoPath = await _hardwareService.takePhoto();
       if (photoPath != null) {
         final int fileSize = await File(photoPath).length();
@@ -477,6 +591,9 @@ class _ControlledPageState extends State<ControlledPage> {
     } catch (e) {
       _addLog('拍照错误: $e');
       await _sendAck(message, extraPayload: <String, dynamic>{'error': e.toString()});
+    } finally {
+      // 拍照完成后清除操作状态
+      _currentOperation = null;
     }
   }
 
@@ -484,6 +601,9 @@ class _ControlledPageState extends State<ControlledPage> {
     _addLog('开始录像...');
     
     try {
+      // 设置当前操作状态
+      _currentOperation = operationVideo;
+      
       final String? videoPath = await _hardwareService.startVideoRecording();
       if (videoPath != null) {
         _addLog('录像开始');
@@ -500,10 +620,12 @@ class _ControlledPageState extends State<ControlledPage> {
       } else {
         _addLog('录像开始失败');
         await _sendAck(message, extraPayload: <String, dynamic>{'error': 'start_failed'});
+        _currentOperation = null;
       }
     } catch (e) {
       _addLog('录像错误: $e');
       await _sendAck(message, extraPayload: <String, dynamic>{'error': e.toString()});
+      _currentOperation = null;
     }
   }
 
@@ -532,6 +654,11 @@ class _ControlledPageState extends State<ControlledPage> {
     } catch (e) {
       _addLog('录像停止错误: $e');
       await _sendAck(message, extraPayload: <String, dynamic>{'error': e.toString()});
+    } finally {
+      // 停止录像后清除操作状态
+      if (_currentOperation == operationVideo) {
+        _currentOperation = null;
+      }
     }
   }
 
@@ -539,6 +666,9 @@ class _ControlledPageState extends State<ControlledPage> {
     _addLog('开始录音...');
     
     try {
+      // 设置当前操作状态
+      _currentOperation = operationAudio;
+      
       final String? audioPath = await _hardwareService.startAudioRecording();
       if (audioPath != null) {
         _addLog('录音开始: $audioPath');
@@ -555,10 +685,12 @@ class _ControlledPageState extends State<ControlledPage> {
       } else {
         _addLog('录音开始失败');
         await _sendAck(message, extraPayload: <String, dynamic>{'error': 'start_failed'});
+        _currentOperation = null;
       }
     } catch (e) {
       _addLog('录音错误: $e');
       await _sendAck(message, extraPayload: <String, dynamic>{'error': e.toString()});
+      _currentOperation = null;
     }
   }
 
@@ -587,6 +719,11 @@ class _ControlledPageState extends State<ControlledPage> {
     } catch (e) {
       _addLog('录音停止错误: $e');
       await _sendAck(message, extraPayload: <String, dynamic>{'error': e.toString()});
+    } finally {
+      // 停止录音后清除操作状态
+      if (_currentOperation == operationAudio) {
+        _currentOperation = null;
+      }
     }
   }
 
@@ -708,32 +845,86 @@ class _ControlledPageState extends State<ControlledPage> {
               spacing: 8,
               children: [
                 ElevatedButton.icon(
-                  onPressed: _networkReady ? () => _executeTakePhoto(ControlMessage(
-                    type: MessageTypes.cmdTakePhoto, 
-                    from: _deviceId,
-                    messageId: '${DateTime.now().millisecondsSinceEpoch}-photo',
-                    timestampMs: DateTime.now().millisecondsSinceEpoch,
-                  )) : null,
+                  onPressed: _networkReady ? () async {
+                    // 停止当前操作
+                    _stopCurrentOperation();
+                    
+                    // 执行拍照
+                    try {
+                      _currentOperation = operationPhoto;
+                      final String? photoPath = await _hardwareService.takePhoto();
+                      if (photoPath != null) {
+                        final int fileSize = await File(photoPath).length();
+                        _addLog('拍照成功: $photoPath (${fileSize}B)');
+                      } else {
+                        _addLog('拍照失败');
+                      }
+                    } catch (e) {
+                      _addLog('拍照错误: $e');
+                    } finally {
+                      _currentOperation = null;
+                    }
+                  } : null,
                   icon: const Icon(Icons.camera_alt),
                   label: const Text('拍照'),
                 ),
                 ElevatedButton.icon(
-                  onPressed: _networkReady ? () => _executeRecordStart(ControlMessage(
-                    type: MessageTypes.cmdRecordStart, 
-                    from: _deviceId,
-                    messageId: '${DateTime.now().millisecondsSinceEpoch}-video',
-                    timestampMs: DateTime.now().millisecondsSinceEpoch,
-                  )) : null,
+                  onPressed: _networkReady ? () async {
+                    // 特殊处理：如果当前正在录像，则只停止不开始新的
+                    if (_currentOperation == operationVideo) {
+                      _addLog('录像中再次点击录像，停止当前录像');
+                      _stopCurrentOperation();
+                      return;
+                    }
+                    
+                    // 停止当前操作
+                    _stopCurrentOperation();
+                    
+                    // 开始录像
+                    try {
+                      _currentOperation = operationVideo;
+                      final String? videoPath = await _hardwareService.startVideoRecording();
+                      if (videoPath != null) {
+                        _addLog('录像开始');
+                      } else {
+                        _addLog('录像开始失败');
+                        _currentOperation = null;
+                      }
+                    } catch (e) {
+                      _addLog('录像错误: $e');
+                      _currentOperation = null;
+                    }
+                  } : null,
                   icon: const Icon(Icons.videocam),
                   label: const Text('录像'),
                 ),
                 ElevatedButton.icon(
-                  onPressed: _networkReady ? () => _executeAudioStart(ControlMessage(
-                    type: MessageTypes.cmdAudioStart, 
-                    from: _deviceId,
-                    messageId: '${DateTime.now().millisecondsSinceEpoch}-audio',
-                    timestampMs: DateTime.now().millisecondsSinceEpoch,
-                  )) : null,
+                  onPressed: _networkReady ? () async {
+                    // 特殊处理：如果当前正在录音，则只停止不开始新的
+                    if (_currentOperation == operationAudio) {
+                      _addLog('录音中再次点击录音，停止当前录音');
+                      _stopCurrentOperation();
+                      return;
+                    }
+                    
+                    // 停止当前操作
+                    _stopCurrentOperation();
+                    
+                    // 开始录音
+                    try {
+                      _currentOperation = operationAudio;
+                      final String? audioPath = await _hardwareService.startAudioRecording();
+                      if (audioPath != null) {
+                        _addLog('录音开始: $audioPath');
+                      } else {
+                        _addLog('录音开始失败');
+                        _currentOperation = null;
+                      }
+                    } catch (e) {
+                      _addLog('录音错误: $e');
+                      _currentOperation = null;
+                    }
+                  } : null,
                   icon: const Icon(Icons.mic),
                   label: const Text('录音'),
                 ),
